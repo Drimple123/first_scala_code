@@ -86,88 +86,59 @@ class Ins_capture extends Module {
     val valid           = Input(Bool())
     val ins             = Input(UInt(32.W))
     val ra              = Input(UInt(40.W))
-    val pc_add4         = Output(UInt(40.W))
-    val is_jal          = Output(Bool())
-    val is_ret          = Output(Bool())
-    val addr_jump       = Output(UInt(40.W))
-    val addr_ret        = Output(UInt(40.W))
     val ret_good        = Output(Bool())
+    //val is_jalr         = Output(Bool())
   })
   //define output duiyingde reg signal
   val is_jal_reg = RegInit(false.B)
   val is_ret_reg = RegInit(false.B)
-  val pc_add4_reg = RegInit(0.U)
-  val addr_jump_reg = RegInit(0.S)
   val addr_ret_reg = RegInit(0.U)
   val ret_good_reg = RegInit(true.B)
   //pipeline 2 stage
-  val is_ret_reg_2 = RegInit(false.B) 
-  is_ret_reg_2 := is_ret_reg
-  val is_ret_reg_3 = RegInit(false.B) 
-  is_ret_reg_3 := is_ret_reg_2
-  val addr_ret_reg_2 = RegInit(0.U)
-  addr_ret_reg_2 := addr_ret_reg
-  val ra_reg = RegInit(0.U)
-  ra_reg := io.ra
-  val ra_reg_2 = RegInit(0.U)
-  val ra_reg_3 = RegInit(0.U)
-  ra_reg_2 := ra_reg
-  ra_reg_3 := ra_reg_2
-  
-  val extract = Module(new Addr_extract_jal)
+  val is_ret_reg_2 = RegNext(is_ret_reg,false.B) 
+  val ra_reg = RegNext(io.ra,0.U)
+  val ra_reg_2 = RegNext(ra_reg,0.U)
 
-  val stack = Module(new Stack(8))
+  val stack = Module(new Stack(64))
   stack.io.en := true.B
-  stack.io.dataIn := io.pc_add4
+  stack.io.dataIn := io.ra 
+  val pop_wire = WireDefault(false.B)
+  val push_wire = WireDefault(false.B)
+  stack.io.pop := pop_wire
+  stack.io.push := push_wire
   addr_ret_reg := stack.io.dataOut
 
-  extract.io.ins := io.ins
   //check is bu is jal or ret
   when(io.valid){
-    when(io.ins(6,0) === "b110_1111".U){
+    when(((io.ins(6,0) === "b110_1111".U)||(io.ins(6,0) === "b110_0111".U))&&(io.ins =/= "h8067".U)){
       is_jal_reg := true.B 
       is_ret_reg := false.B
-      pc_add4_reg := io.pc + 4.U   
-      
-      addr_jump_reg := extract.io.addr3 + io.pc.asSInt
+      pop_wire := false.B
+      push_wire := true.B 
     }
-    .elsewhen(io.ins === "b0000_0000_0000_0001_000_00000_1100111".U){
+    .elsewhen(io.ins === "h8067".U){// is ret instruction
       is_ret_reg := true.B 
       is_jal_reg := false.B
+      pop_wire := true.B
+      push_wire := false.B 
     }
     .otherwise{
       is_jal_reg := false.B 
       is_ret_reg := false.B 
+      pop_wire := false.B
+      push_wire := false.B 
     }
   }
   .otherwise{
     is_jal_reg := false.B
     is_ret_reg := false.B 
+    pop_wire := false.B
+    push_wire := false.B 
   }
 
-  io.pc_add4 := pc_add4_reg
-  io.is_jal := is_jal_reg
-  io.addr_jump := addr_jump_reg.asUInt
-  io.is_ret := is_ret_reg
-
-  //if jal, push ret_address,  if ret ,pop ret_address
-  when(io.is_jal){
-    stack.io.push := true.B 
-    stack.io.pop := false.B 
-    //printf(stack.io.en)
-  }
-  .elsewhen(io.is_ret){
-    stack.io.pop := true.B 
-    stack.io.push := false.B 
-    //addr_ret_reg := stack.io.dataOut
-  }
-  .otherwise{
-    stack.io.push := false.B
-    stack.io.pop := false.B
-  }
   //compare ra and stack's
-  when(is_ret_reg_3){
-    when(ra_reg_3 === addr_ret_reg){
+  when(is_ret_reg_2){
+    when(ra_reg_2 === addr_ret_reg){
       ret_good_reg := true.B
     }
     .otherwise{
@@ -175,9 +146,4 @@ class Ins_capture extends Module {
     }
   }
   io.ret_good := ret_good_reg
-  io.addr_ret := addr_ret_reg
 }
-
-// object ins_capture_v extends App{
-//   emitVerilog(new ins_capture, Array("--target-dir", "generated"))
-// }
